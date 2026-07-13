@@ -671,7 +671,7 @@
     if(style.type === 'polygon'){
       ctx.closePath();
       ctx.fillStyle = style.fill;
-      ctx.fill();
+      ctx.fill('evenodd');
     }
     ctx.strokeStyle = style.stroke;
     ctx.lineWidth = style.lineWidth || 1;
