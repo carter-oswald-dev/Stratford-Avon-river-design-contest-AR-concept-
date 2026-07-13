@@ -1,0 +1,19 @@
+[
+  {
+    "id": "stonebridge",
+    "title": "Stratford Stone Bridge",
+    "year": 1900,
+    "date": "c. 1900",
+    "description": "",
+    "source": "",
+    "sourceUrl": "",
+    "bearing": 92,
+    "lat": 43.37032,
+    "lon": -80.98185,
+    "photo": "photos/stonebridge.jpg",
+    "landmarks": [
+      { "label": "Arch line", "photo": "photos/stonebridge.jpg" },
+      { "label": "Far bank", "photo": "photos/stonebridge.jpg" }
+    ]
+  }
+]

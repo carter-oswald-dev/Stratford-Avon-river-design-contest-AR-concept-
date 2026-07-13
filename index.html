@@ -59,7 +59,7 @@
   .marker svg{width:100%; height:100%; display:block;}
   .marker .pulse{
     position:absolute; left:50%; bottom:2px; width:10px; height:10px; margin-left:-5px;
-    border-radius:50%; background:var(--brass); opacity:0.35;
+    border-radius:50%; background:var(--pulse-color, var(--brass)); opacity:0.35;
     animation:pulse 2.2s ease-out infinite;
   }
   @keyframes pulse{
@@ -87,6 +87,7 @@
   .markerCard{
     position:absolute; left:16px; right:16px;
     bottom:calc(env(safe-area-inset-bottom,0px) + 18px);
+    max-height:70vh; overflow-y:auto;
     background:var(--panel); border:1px solid var(--line); border-radius:14px;
     padding:14px 16px 16px; z-index:6;
     transform:translateY(140%); transition:transform 0.28s cubic-bezier(.2,.8,.3,1);
@@ -97,8 +98,27 @@
     width:56px; height:56px; border-radius:8px; object-fit:cover; float:left; margin-right:12px;
     border:1px solid var(--line);
   }
+  .markerCard .titleRow{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;}
   .markerCard h3{margin:0 0 3px; font-size:15px; font-weight:600; color:var(--paper);}
-  .markerCard .dist{font-size:12px; color:var(--paper-dim); margin:0 0 10px;}
+  .markerCard .dateBadge{
+    font-size:11px; font-weight:600; color:var(--brass); white-space:nowrap;
+  }
+  .markerCard .dist{font-size:12px; color:var(--paper-dim); margin:0 0 8px;}
+  .markerCard .desc{
+    clear:both; font-size:13px; line-height:1.5; color:var(--paper-dim);
+    margin:4px 0 6px;
+  }
+  .markerCard .desc.clamped{
+    display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+  }
+  .markerCard .showMoreBtn{
+    background:none; border:none; padding:0; margin:0 0 10px;
+    font-size:12.5px; color:var(--brass); text-decoration:underline; cursor:pointer; display:block;
+  }
+  .markerCard .sourceLine{
+    font-size:11.5px; color:var(--paper-dim); margin:0 0 12px;
+  }
+  .markerCard .sourceLine a{color:var(--brass); text-decoration:underline;}
   .markerCard .row{clear:both;}
   .btn{
     display:inline-flex; align-items:center; justify-content:center; gap:6px;
@@ -240,8 +260,14 @@
 
     <div class="markerCard" id="markerCard">
       <img class="thumb" id="cardThumb" src="" alt="">
-      <h3 id="cardTitle">Stratford Stone Bridge</h3>
+      <div class="titleRow">
+        <h3 id="cardTitle">Stratford Stone Bridge</h3>
+        <span class="dateBadge" id="cardDate"></span>
+      </div>
       <p class="dist" id="cardDist">— m away</p>
+      <p class="desc clamped" id="cardDesc"></p>
+      <button class="showMoreBtn" id="cardShowMoreBtn" style="display:none;">Show more</button>
+      <p class="sourceLine" id="cardSource" style="display:none;"></p>
       <div class="row">
         <button class="btn" id="openArBtn">View Then/Now overlay</button>
         <button class="btn secondary" id="closeCardBtn">Close</button>
@@ -308,25 +334,57 @@
   "use strict";
 
   /* ---------------------------------------------------------
-     DATA: markers. In the real app this JSON (+ images) ships
-     bundled with the app, no network calls needed.
+     DATA: markers. Loaded from an external "markers.json" file
+     that sits next to this HTML (same pattern as map.osm) — so
+     adding a new photo to the archive means:
+       1. drop the image file in the "photos" folder
+       2. add one entry to markers.json
+       3. refresh — no editing this script, ever.
+
+     markers.json shape (array of objects):
+     [
+       {
+         "id": "stonebridge",              // unique, used internally
+         "title": "Stratford Stone Bridge",
+         "year": 1900,                     // numeric year (or best estimate)
+                                            // used for decade color-coding
+         "date": "c. 1900",                // display string, can be vaguer
+                                            // than `year`, e.g. "1870s" or
+                                            // "July 11, 1870"
+         "description": "Longer text describing the photo, its context,
+                          what changed since, etc. Shown truncated with a
+                          Show more/less toggle in the map popup.",
+         "source": "Stratford-Perth Archive",   // optional, shown as a line
+         "sourceUrl": "https://example.com",     // optional, becomes a link
+         "bearing": 92,                    // compass heading photographer
+                                            // faced, degrees, 0 = north
+         "lat": 43.37032,
+         "lon": -80.98185,
+         "photo": "photos/stonebridge.jpg",
+         "landmarks": [                    // optional reference thumbnails
+           { "label": "Arch line", "photo": "photos/stonebridge.jpg" }
+         ]
+       }
+     ]
+
+     Only id/title/lat/lon/photo are really required for a marker to work;
+     everything else degrades gracefully if omitted (see renderMarkerDOM,
+     onMarkerTap, openAr below).
   --------------------------------------------------------- */
-  /* Photos now live as plain files in a "photos" folder next to this HTML,
-     e.g. photos/stonebridge.jpg -- instead of base64-embedded. GitHub Pages
-     (or any static host) serves these automatically at that relative path,
-     same as map.osm. Just drop new images in that folder and reference the
-     filename here -- no re-encoding, no editing this script. */
-  var markers = [
+  var markers = [];
+
+  var MARKERS_FALLBACK = [
     {
       id: "stonebridge",
       title: "Stratford Stone Bridge",
-      year: "c. 1900",
-      bearing: 92, // compass heading the original photographer faced (deg, 0=N)
-      lat: 43.37032,   // aligned to the sample.osm bridge midpoint — swap in your surveyed coordinate
+      year: 1900,
+      date: "c. 1900",
+      description: "Sample entry shown because markers.json wasn't found. Replace with your own archive data.",
+      bearing: 92,
+      lat: 43.37032,
       lon: -80.98185,
       photo: "photos/stonebridge.jpg",
       landmarks: [
-        // small crops the user can glance at to fine-tune standing position
         { label: "Arch line", photo: "photos/stonebridge.jpg" },
         { label: "Far bank", photo: "photos/stonebridge.jpg" }
       ]
@@ -334,12 +392,37 @@
   ];
 
   /* ---------------------------------------------------------
+     DECADE COLOR CODING — mirrors the GeoArchive.org legend:
+     pin color communicates roughly when the photo is from, at
+     a glance, before you even tap it.
+  --------------------------------------------------------- */
+  var DECADE_BUCKETS = [
+    { max: 1799, color: '#3a0d2e', label: '1700s or earlier' },
+    { max: 1839, color: '#c2202b', label: 'Early 1800s' },
+    { max: 1869, color: '#e8791a', label: 'Mid-1800s' },
+    { max: 1899, color: '#e8c81a', label: 'Late 1800s' },
+    { max: 1909, color: '#3fae4a', label: '1900s' },
+    { max: 1919, color: '#1f7a2e', label: '1910s' },
+    { max: 1929, color: '#1f9ba8', label: '1920s' },
+    { max: 1939, color: '#2f6fd1', label: '1930s' },
+    { max: 1949, color: '#1a3fae', label: '1940s' },
+    { max: 9999, color: '#8a5fc9', label: '1950s or later' }
+  ];
+  function colorForYear(year){
+    if(typeof year !== 'number' || isNaN(year)) return '#b98a3d'; // fallback brass, undated
+    for(var i=0;i<DECADE_BUCKETS.length;i++){
+      if(year <= DECADE_BUCKETS[i].max) return DECADE_BUCKETS[i].color;
+    }
+    return '#b98a3d';
+  }
+
+  /* ---------------------------------------------------------
      STATE
   --------------------------------------------------------- */
   var state = {
     userLat: null, userLon: null, userAcc: null,
     heading: null,
-    activeMarker: markers[0],
+    activeMarker: null, // set once markers.json (or fallback) loads
     watchId: null,
     mapScale: 6, // meters per... derived dynamically, see draw()
   };
@@ -387,7 +470,7 @@
      georeferenced raster/vector map later — same lat/lon->px
      transform applies.
   --------------------------------------------------------- */
-  var origin = { lat: markers[0].lat, lon: markers[0].lon };
+  var origin = { lat: 43.37032, lon: -80.98185 }; // safe default (downtown Stratford); recentered once markers load
 
   /* ---------------------------------------------------------
      VIEW STATE — pan/zoom over the projected meter-space.
@@ -644,10 +727,13 @@
     if(markerEls[m.id]) return markerEls[m.id];
     var el = document.createElement('div');
     el.className = 'marker';
+    var pinColor = colorForYear(m.year);
     el.innerHTML =
       '<div class="pulse"></div>' +
-      '<svg viewBox="0 0 34 34"><path class="pin-fill" fill="#b98a3d" d="M17 2c8 0 13 6 13 13 0 9-13 17-13 17S4 24 4 15C4 8 9 2 17 2z"/>' +
+      '<svg viewBox="0 0 34 34"><path class="pin-fill" fill="' + pinColor + '" d="M17 2c8 0 13 6 13 13 0 9-13 17-13 17S4 24 4 15C4 8 9 2 17 2z"/>' +
       '<circle cx="17" cy="15" r="5" fill="#141b18"/></svg>';
+    el.dataset.baseColor = pinColor;
+    el.style.setProperty('--pulse-color', pinColor);
     el.addEventListener('click', function(){ onMarkerTap(m); });
     mapScreen.insertBefore(el, document.getElementById('mapHint'));
     markerEls[m.id] = el;
@@ -697,12 +783,50 @@
     state.activeMarker = m;
     document.getElementById('cardThumb').src = m.photo;
     document.getElementById('cardTitle').textContent = m.title;
+
+    var dateEl = document.getElementById('cardDate');
+    dateEl.textContent = m.date || (m.year ? String(m.year) : '');
+
     var distText = '— m away';
     if(state.userLat != null){
       var d = haversine(state.userLat, state.userLon, m.lat, m.lon);
       distText = Math.round(d) + ' m away' + (d < 40 ? ' · close enough to view' : '');
     }
     document.getElementById('cardDist').textContent = distText;
+
+    // description: clamp to 3 lines with a Show more/less toggle, matching
+    // the archive-style popup (see GeoArchive.org reference this mirrors)
+    var descEl = document.getElementById('cardDesc');
+    var showMoreBtn = document.getElementById('cardShowMoreBtn');
+    if(m.description){
+      descEl.textContent = m.description;
+      descEl.style.display = 'block';
+      descEl.classList.add('clamped');
+      showMoreBtn.style.display = 'block';
+      showMoreBtn.textContent = 'Show more';
+      showMoreBtn.onclick = function(){
+        var isClamped = descEl.classList.toggle('clamped');
+        showMoreBtn.textContent = isClamped ? 'Show more' : 'Show less';
+      };
+    } else {
+      descEl.style.display = 'none';
+      showMoreBtn.style.display = 'none';
+    }
+
+    // source line: plain text, or a link if sourceUrl is provided
+    var sourceEl = document.getElementById('cardSource');
+    if(m.source || m.sourceUrl){
+      if(m.sourceUrl){
+        sourceEl.innerHTML = 'Source: <a href="' + m.sourceUrl + '" target="_blank" rel="noopener">' +
+          (m.source || 'link') + '</a>';
+      } else {
+        sourceEl.textContent = 'Source: ' + m.source;
+      }
+      sourceEl.style.display = 'block';
+    } else {
+      sourceEl.style.display = 'none';
+    }
+
     markerCard.classList.add('show');
   }
   document.getElementById('closeCardBtn').addEventListener('click', function(){
@@ -740,11 +864,11 @@
   startGeo();
 
   // demo fallback: if no real GPS fix within a few seconds (e.g. desktop testing),
-  // drop a simulated position ~90m from the marker so the UI is exercisable.
+  // drop a simulated position ~90m from the map origin so the UI is exercisable.
   setTimeout(function(){
     if(state.userLat == null){
-      state.userLat = markers[0].lat + 0.0008;
-      state.userLon = markers[0].lon - 0.0006;
+      state.userLat = origin.lat + 0.0008;
+      state.userLon = origin.lon - 0.0006;
       state.userAcc = 12;
       gpsStatusEl.innerHTML = '<span class="dot"></span>±12 m (simulated)';
       document.getElementById('accVal').textContent = 12;
@@ -801,7 +925,9 @@
   function openAr(m){
     markerCard.classList.remove('show');
     document.querySelector('.arTitle .name').textContent = m.title;
-    document.querySelector('.arTitle .yr').textContent = m.year + ' · bearing ' + m.bearing + '°';
+    document.querySelector('.arTitle .yr').textContent =
+      (m.date || (m.year ? String(m.year) : '')) +
+      (typeof m.bearing === 'number' ? ' · bearing ' + m.bearing + '°' : '');
     overlayImg.src = m.photo;
     buildLandmarkStrip(m);
 
@@ -1094,9 +1220,45 @@
   }
 
   /* ---------------------------------------------------------
+     MARKERS LOADING
+     ----------------------------------------------------------
+     Fetches markers.json from the same folder as this HTML.
+     If it's missing (e.g. testing via file:// with no server,
+     or you haven't created it yet), falls back to the small
+     built-in MARKERS_FALLBACK sample so the app still runs.
+  --------------------------------------------------------- */
+  function initMarkers(){
+    fetch('markers.json')
+      .then(function(resp){
+        if(!resp.ok) throw new Error('no markers.json found');
+        return resp.json();
+      })
+      .then(function(data){
+        onMarkersLoaded(Array.isArray(data) ? data : MARKERS_FALLBACK);
+      })
+      .catch(function(){
+        onMarkersLoaded(MARKERS_FALLBACK);
+      });
+  }
+
+  function onMarkersLoaded(list){
+    markers = list;
+    if(!markers.length) return;
+
+    // recenter the map's projection origin on the first marker
+    origin.lat = markers[0].lat;
+    origin.lon = markers[0].lon;
+
+    state.activeMarker = markers[0];
+    document.getElementById('cardThumb').src = markers[0].photo;
+
+    drawMap(); // pins didn't exist until now — draw them in
+  }
+
+  /* ---------------------------------------------------------
      INIT
   --------------------------------------------------------- */
-  document.getElementById('cardThumb').src = markers[0].photo;
+  initMarkers();
   initOsm();
   drawMap();
   window.addEventListener('resize', function(){ drawMap(); });
