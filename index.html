@@ -145,9 +145,11 @@
   .distRow{display:flex; align-items:center; justify-content:space-between; clear:both;}
   .distRow .dist{margin:0;}
   .navIconBtn{
-    width:30px; height:30px; border-radius:50%; background:var(--panel-2); border:1px solid var(--line);
-    display:flex; align-items:center; justify-content:center; font-size:14px; cursor:pointer; flex-shrink:0;
+    display:flex; align-items:center; gap:5px; padding:6px 11px; border-radius:14px;
+    background:var(--panel-2); border:1px solid var(--line); cursor:pointer; flex-shrink:0;
+    font-size:11.5px; font-weight:600; color:var(--paper-dim); white-space:nowrap;
   }
+  .navIconBtn .navIconEmoji{font-size:13px;}
 
   /* ---------- NAVIGATION MENU ---------- */
   .navOverlay{
@@ -433,7 +435,7 @@
       </div>
       <div class="distRow">
         <p class="dist" id="cardDist">— m away</p>
-        <div class="navIconBtn" id="navIconBtn" title="Get directions">📍</div>
+        <div class="navIconBtn" id="navIconBtn" title="Get directions"><span class="navIconEmoji">📍</span>Navigate to</div>
       </div>
       <p class="desc clamped" id="cardDesc"></p>
       <button class="showMoreBtn" id="cardShowMoreBtn" style="display:none;">Show more</button>
