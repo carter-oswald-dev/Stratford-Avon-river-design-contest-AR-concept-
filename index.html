@@ -226,6 +226,36 @@
   }
   .modeBtn.active{background:var(--brass); color:#1a1206; border-color:var(--brass);}
 
+  /* ---------- COMPARE SCREEN ---------- */
+  #compareScreen{background:#000;}
+  .compareStage{position:absolute; inset:0; overflow:hidden; touch-action:none;}
+  #compareAfter{
+    position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block;
+  }
+  #compareBeforeWrap{
+    position:absolute; inset:0; width:100%; height:100%; overflow:hidden;
+    /* clip-path is what drives both fade-as-crossfade (via opacity on the img
+       inside) and wipe modes (via inset() on this wrapper) */
+  }
+  #compareBefore{
+    position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block;
+  }
+  #wipeHandle{
+    position:absolute; top:0; bottom:0; width:3px; background:var(--brass);
+    box-shadow:0 0 8px rgba(0,0,0,0.6); display:none; pointer-events:none;
+    transform:translateX(-1.5px);
+  }
+  #wipeHandle::before, #wipeHandle::after{
+    content:''; position:absolute; left:50%; width:26px; height:26px; margin-left:-13px;
+    border-radius:50%; background:var(--brass); border:2px solid var(--paper);
+  }
+  #wipeHandle::before{ top:50%; margin-top:-13px; }
+  #wipeHandle.vertical{ width:auto; left:0; right:0; height:3px; top:auto; }
+  #wipeHandle.vertical::after{ display:none; }
+
+  .compareActionRow{display:flex; gap:8px; margin-top:10px;}
+  .compareActionRow .btn{font-size:12.5px; padding:11px 8px;}
+
   .landmarkStrip{
     position:absolute; right:12px; top:50%; transform:translateY(-50%); z-index:5;
     display:flex; flex-direction:column; gap:8px;
@@ -333,6 +363,49 @@
     </div>
   </div>
 
+  <!-- ================= COMPARE SCREEN (no camera — for rooftop/drone/demolished
+       vantage points where live AR alignment isn't possible, but a still
+       then/now comparison between the old photo and a modern equivalent
+       photo still is useful) ================= -->
+  <div class="screen" id="compareScreen">
+    <div class="compareStage" id="compareStage">
+      <img id="compareAfter" src="" alt="Modern photo">
+      <div id="compareBeforeWrap">
+        <img id="compareBefore" src="" alt="Historical photo">
+      </div>
+      <div id="wipeHandle"></div>
+    </div>
+
+    <div class="arTop">
+      <div class="backBtn" id="compareBackBtn">‹</div>
+      <div class="arTitle">
+        <div class="name" id="compareName">Title</div>
+        <div class="yr" id="compareYr">Date</div>
+      </div>
+      <div style="width:38px;"></div>
+    </div>
+
+    <div class="arBottom">
+      <div class="sliderRow" id="compareOpacityRow">
+        <label>Opacity</label>
+        <input type="range" id="compareOpacitySlider" min="0" max="100" value="100">
+      </div>
+      <div class="sliderRow hidden" id="compareWipeRow">
+        <label id="compareWipeLabel">Wipe</label>
+        <input type="range" id="compareWipeSlider" min="0" max="100" value="50">
+      </div>
+      <div class="modeRow">
+        <div class="modeBtn active" data-cmode="fade">Fade</div>
+        <div class="modeBtn" data-cmode="wipe-h">Wipe ↔</div>
+        <div class="modeBtn" data-cmode="wipe-v">Wipe ↕</div>
+      </div>
+      <div class="compareActionRow">
+        <button class="btn secondary" id="beforeAfterBtn">Hold for full before</button>
+        <button class="btn secondary" id="autoPlayBtn">▶ Auto wipe</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -370,12 +443,32 @@
          "landmarks": [                    // optional reference thumbnails
            { "label": "Arch line", "photo": "photos/stonebridge.jpg" }
          ]
+       },
+       {
+         // COMPARE-MODE marker: for vantage points you can't physically
+         // stand at anymore (rooftops, upper floors of demolished buildings,
+         // drone-only angles). Opens the no-camera Compare screen instead
+         // of live AR — a still historical photo vs a modern equivalent,
+         // with fade/wipe controls. All the same fields above apply, plus:
+         "id": "rooftop-view-1910",
+         "title": "Downie Street rooftop, looking north",
+         "mode": "compare",               // <-- routes to Compare screen, not AR camera
+         "year": 1910,
+         "date": "c. 1910",
+         "lat": 43.37100,
+         "lon": -80.98250,
+         "photo": "photos/rooftop-1910.jpg",       // historical ("before")
+         "afterPhoto": "photos/rooftop-modern.jpg" // modern equivalent ("after"),
+                                                    // e.g. a drone photo from a
+                                                    // matching angle/height
        }
      ]
 
      Only id/title/lat/lon/photo are really required for a marker to work;
      everything else degrades gracefully if omitted (see renderMarkerDOM,
-     onMarkerTap, openAr below).
+     onMarkerTap, openAr, openCompare below). A marker only needs
+     "mode": "compare" + "afterPhoto" to use the no-camera comparison
+     screen instead of the live AR camera screen.
   --------------------------------------------------------- */
   var markers = [];
 
@@ -879,13 +972,24 @@
       sourceEl.style.display = 'none';
     }
 
+    // Label reflects which screen this marker opens: live-camera AR for most
+    // markers, or the no-camera Compare screen for spots marked mode:"compare"
+    // (rooftop/drone/demolished-building vantage points where you can't stand
+    // in the original spot to align a live camera feed).
+    var openBtn = document.getElementById('openArBtn');
+    openBtn.textContent = m.mode === 'compare' ? 'View then/now comparison' : 'View Then/Now overlay';
+
     markerCard.classList.add('show');
   }
   document.getElementById('closeCardBtn').addEventListener('click', function(){
     markerCard.classList.remove('show');
   });
   document.getElementById('openArBtn').addEventListener('click', function(){
-    openAr(state.activeMarker);
+    if(state.activeMarker && state.activeMarker.mode === 'compare'){
+      openCompare(state.activeMarker);
+    } else {
+      openAr(state.activeMarker);
+    }
   });
 
   /* ---------------------------------------------------------
@@ -974,6 +1078,236 @@
   var edgeCtx = edgeCanvas.getContext('2d');
   var edgeSourceCanvas = document.getElementById('edgeSourceCanvas');
 
+  var compareScreen = document.getElementById('compareScreen');
+
+  /* ---------------------------------------------------------
+     COMPARE SCREEN — no camera. For vantage points you can't
+     physically stand at anymore (rooftops, upper floors of
+     buildings that no longer exist, drone-only angles). Instead
+     of live AR alignment, this shows the historical photo (m.photo)
+     against a modern equivalent (m.afterPhoto) that you or someone
+     else took from a matching angle — e.g. via drone.
+
+     markers.json fields this uses:
+       "mode": "compare"        // <-- routes here instead of AR camera
+       "photo": "photos/x.jpg"       // historical ("before")
+       "afterPhoto": "photos/x2.jpg" // modern equivalent ("after")
+  --------------------------------------------------------- */
+  var compareAfter = document.getElementById('compareAfter');
+  var compareBefore = document.getElementById('compareBefore');
+  var compareBeforeWrap = document.getElementById('compareBeforeWrap');
+  var wipeHandle = document.getElementById('wipeHandle');
+  var compareStage = document.getElementById('compareStage');
+
+  var compareState = {
+    cmode: 'fade',      // 'fade' | 'wipe-h' | 'wipe-v'
+    wipePct: 50,        // 0-100, position of the wipe line
+    autoPlaying: false,
+    autoDir: 1,         // 1 = growing, -1 = shrinking (for the back-and-forth sweep)
+    autoRAF: null
+  };
+
+  function openCompare(m){
+    markerCard.classList.remove('show');
+    document.getElementById('compareName').textContent = m.title;
+    document.getElementById('compareYr').textContent = m.date || (m.year ? String(m.year) : '');
+
+    setImageWithFallback(compareBefore, m.photo);
+    setImageWithFallback(compareAfter, m.afterPhoto);
+
+    // reset to a sane default each time a marker opens
+    stopAutoPlay();
+    compareState.cmode = 'fade';
+    compareState.wipePct = 50;
+    document.querySelectorAll('#compareScreen .modeBtn').forEach(function(b){
+      b.classList.toggle('active', b.dataset.cmode === 'fade');
+    });
+    document.getElementById('compareOpacitySlider').value = 100;
+    document.getElementById('compareWipeSlider').value = 50;
+    applyCompareMode();
+
+    switchScreen('compare');
+  }
+
+  document.getElementById('compareBackBtn').addEventListener('click', function(){
+    stopAutoPlay();
+    switchScreen('map');
+  });
+
+  function applyCompareMode(){
+    var opacityRow = document.getElementById('compareOpacityRow');
+    var wipeRow = document.getElementById('compareWipeRow');
+    var wipeLabel = document.getElementById('compareWipeLabel');
+
+    if(compareState.cmode === 'fade'){
+      opacityRow.classList.remove('hidden');
+      wipeRow.classList.add('hidden');
+      wipeHandle.style.display = 'none';
+      wipeHandle.classList.remove('vertical');
+      compareBeforeWrap.style.clipPath = 'none';
+      var opacityVal = document.getElementById('compareOpacitySlider').value;
+      compareBefore.style.opacity = (opacityVal/100).toFixed(2);
+    } else {
+      opacityRow.classList.add('hidden');
+      wipeRow.classList.remove('hidden');
+      wipeHandle.style.display = 'block';
+      compareBefore.style.opacity = '1';
+      wipeLabel.textContent = compareState.cmode === 'wipe-h' ? 'Wipe ↔' : 'Wipe ↕';
+      wipeHandle.classList.toggle('vertical', compareState.cmode === 'wipe-v');
+      applyWipe();
+    }
+  }
+
+  function applyWipe(){
+    var pct = compareState.wipePct;
+    if(compareState.cmode === 'wipe-h'){
+      // "before" image revealed from the left, up to pct% across
+      compareBeforeWrap.style.clipPath = 'inset(0 ' + (100-pct) + '% 0 0)';
+      wipeHandle.style.left = pct + '%';
+      wipeHandle.style.top = '0';
+    } else if(compareState.cmode === 'wipe-v'){
+      compareBeforeWrap.style.clipPath = 'inset(0 0 ' + (100-pct) + '% 0)';
+      wipeHandle.style.top = pct + '%';
+      wipeHandle.style.left = '0';
+    }
+  }
+
+  /* ---- mode buttons: fade / wipe-h / wipe-v ---- */
+  document.querySelectorAll('#compareScreen .modeBtn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      stopAutoPlay();
+      document.querySelectorAll('#compareScreen .modeBtn').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      compareState.cmode = btn.dataset.cmode;
+      applyCompareMode();
+    });
+  });
+
+  /* ---- fade opacity slider ---- */
+  document.getElementById('compareOpacitySlider').addEventListener('input', function(e){
+    compareBefore.style.opacity = (e.target.value/100).toFixed(2);
+  });
+
+  /* ---- manual wipe slider ---- */
+  document.getElementById('compareWipeSlider').addEventListener('input', function(e){
+    stopAutoPlay();
+    compareState.wipePct = parseFloat(e.target.value);
+    applyWipe();
+  });
+
+  /* ---- drag directly on the image to wipe, in either wipe mode ---- */
+  (function setupWipeDrag(){
+    var dragging = false;
+    function pctFromEvent(clientX, clientY){
+      var rect = compareStage.getBoundingClientRect();
+      if(compareState.cmode === 'wipe-h'){
+        return Math.min(100, Math.max(0, ((clientX-rect.left)/rect.width)*100));
+      } else {
+        return Math.min(100, Math.max(0, ((clientY-rect.top)/rect.height)*100));
+      }
+    }
+    function start(clientX, clientY){
+      if(compareState.cmode === 'fade') return;
+      stopAutoPlay();
+      dragging = true;
+      compareState.wipePct = pctFromEvent(clientX, clientY);
+      document.getElementById('compareWipeSlider').value = compareState.wipePct;
+      applyWipe();
+    }
+    function move(clientX, clientY){
+      if(!dragging) return;
+      compareState.wipePct = pctFromEvent(clientX, clientY);
+      document.getElementById('compareWipeSlider').value = compareState.wipePct;
+      applyWipe();
+    }
+    function end(){ dragging = false; }
+
+    compareStage.addEventListener('touchstart', function(e){ start(e.touches[0].clientX, e.touches[0].clientY); }, {passive:true});
+    compareStage.addEventListener('touchmove', function(e){ move(e.touches[0].clientX, e.touches[0].clientY); }, {passive:true});
+    compareStage.addEventListener('touchend', end, {passive:true});
+    compareStage.addEventListener('mousedown', function(e){ start(e.clientX, e.clientY); });
+    window.addEventListener('mousemove', function(e){ move(e.clientX, e.clientY); });
+    window.addEventListener('mouseup', end);
+  })();
+
+  /* ---- hold-for-full-before button: press and hold to see the historical
+         photo at full strength (opacity 1 / fully wiped), release to return
+         to whatever the current slider position was ---- */
+  (function setupBeforeAfterHold(){
+    var btn = document.getElementById('beforeAfterBtn');
+    var savedOpacity = null, savedWipePct = null;
+
+    function showFullBefore(){
+      stopAutoPlay();
+      if(compareState.cmode === 'fade'){
+        savedOpacity = document.getElementById('compareOpacitySlider').value;
+        compareBefore.style.opacity = '1';
+      } else {
+        savedWipePct = compareState.wipePct;
+        compareState.wipePct = 100;
+        applyWipe();
+      }
+    }
+    function restore(){
+      if(compareState.cmode === 'fade' && savedOpacity != null){
+        compareBefore.style.opacity = (savedOpacity/100).toFixed(2);
+        savedOpacity = null;
+      } else if(savedWipePct != null){
+        compareState.wipePct = savedWipePct;
+        document.getElementById('compareWipeSlider').value = savedWipePct;
+        applyWipe();
+        savedWipePct = null;
+      }
+    }
+    btn.addEventListener('touchstart', function(e){ e.preventDefault(); showFullBefore(); }, {passive:false});
+    btn.addEventListener('touchend', restore);
+    btn.addEventListener('mousedown', showFullBefore);
+    window.addEventListener('mouseup', function(){ if(savedOpacity!=null || savedWipePct!=null) restore(); });
+  })();
+
+  /* ---- auto-play wipe: sweeps 0% -> 100% -> 0% at a steady speed, only
+         meaningful in wipe-h/wipe-v modes (fade mode has no auto-play,
+         since "sweeping opacity" isn't the same visual idea requested) ---- */
+  var AUTO_PLAY_SPEED = 0.6; // percent per animation frame (~36%/sec at 60fps)
+
+  function stopAutoPlay(){
+    compareState.autoPlaying = false;
+    if(compareState.autoRAF){
+      cancelAnimationFrame(compareState.autoRAF);
+      compareState.autoRAF = null;
+    }
+    document.getElementById('autoPlayBtn').textContent = '▶ Auto wipe';
+  }
+
+  function startAutoPlay(){
+    if(compareState.cmode === 'fade'){
+      // auto-play only makes sense for wipe modes; default to horizontal wipe
+      compareState.cmode = 'wipe-h';
+      document.querySelectorAll('#compareScreen .modeBtn').forEach(function(b){
+        b.classList.toggle('active', b.dataset.cmode === 'wipe-h');
+      });
+      applyCompareMode();
+    }
+    compareState.autoPlaying = true;
+    document.getElementById('autoPlayBtn').textContent = '⏸ Stop';
+
+    function step(){
+      if(!compareState.autoPlaying) return;
+      compareState.wipePct += AUTO_PLAY_SPEED * compareState.autoDir;
+      if(compareState.wipePct >= 100){ compareState.wipePct = 100; compareState.autoDir = -1; }
+      if(compareState.wipePct <= 0){ compareState.wipePct = 0; compareState.autoDir = 1; }
+      document.getElementById('compareWipeSlider').value = compareState.wipePct;
+      applyWipe();
+      compareState.autoRAF = requestAnimationFrame(step);
+    }
+    step();
+  }
+
+  document.getElementById('autoPlayBtn').addEventListener('click', function(){
+    if(compareState.autoPlaying) stopAutoPlay();
+    else startAutoPlay();
+  });
+
   function openAr(m){
     markerCard.classList.remove('show');
     document.querySelector('.arTitle .name').textContent = m.title;
@@ -1001,6 +1335,7 @@
   function switchScreen(which){
     mapScreen.classList.toggle('active', which === 'map');
     arScreen.classList.toggle('active', which === 'ar');
+    compareScreen.classList.toggle('active', which === 'compare');
   }
 
   document.getElementById('arBackBtn').addEventListener('click', function(){

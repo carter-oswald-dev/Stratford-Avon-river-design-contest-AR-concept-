@@ -349,5 +349,16 @@
     "lat": 43.372222,
     "lon": -80.977222,
     "photo": ""
+  },
+  {
+    "id": "test-compare-mode",
+    "title": "🧪 Test: Compare mode (fake location)",
+    "mode": "compare",
+    "date": "Test entry — not a real location",
+    "description": "Fake marker for testing the Compare screen only. 'Before' is blue, 'After' is orange, with diagonal stripes so you can clearly see the fade and wipe animations working. Delete this entry once you've confirmed it works.",
+    "lat": 43.372211,
+    "lon": -80.984644,
+    "photo": "photos/test-before.jpg",
+    "afterPhoto": "photos/test-after.jpg"
   }
 ]
