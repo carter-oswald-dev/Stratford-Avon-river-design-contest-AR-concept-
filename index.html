@@ -30,6 +30,27 @@
   .screen{position:absolute; inset:0; display:none;}
   .screen.active{display:block;}
 
+  /* ---------- GLOBAL ERROR BANNER ---------- */
+  #errorBanner{
+    position:fixed; left:12px; right:12px;
+    top:calc(env(safe-area-inset-top,0px) + 10px);
+    z-index:9999;
+    background:#2a1810; border:1px solid var(--danger);
+    border-radius:12px; padding:12px 14px;
+    display:none; align-items:flex-start; gap:10px;
+    box-shadow:0 8px 24px rgba(0,0,0,0.5);
+  }
+  #errorBanner.show{display:flex;}
+  .errorBannerIcon{font-size:18px; flex-shrink:0; margin-top:1px;}
+  .errorBannerText{flex:1; min-width:0;}
+  .errorBannerTitle{font-size:13px; font-weight:700; color:var(--paper); margin-bottom:3px;}
+  .errorBannerMsg{font-size:12.5px; color:var(--paper-dim); line-height:1.45;}
+  .errorBannerClose{
+    flex-shrink:0; width:22px; height:22px; border-radius:50%;
+    background:rgba(255,255,255,0.08); display:flex; align-items:center; justify-content:center;
+    font-size:11px; color:var(--paper-dim); cursor:pointer; margin-top:1px;
+  }
+
   /* ---------- MAP SCREEN ---------- */
   #mapScreen{background:radial-gradient(ellipse at 50% 30%, #1a2420 0%, #0d1210 70%);}
   #mapCanvas{position:absolute; inset:0; width:100%; height:100%; touch-action:none;}
@@ -126,6 +147,15 @@
   .searchInputRow input::placeholder{color:var(--paper-dim);}
   .yearRangeDash{color:var(--paper-dim); flex-shrink:0;}
 
+  .sortRow{display:flex; align-items:center; gap:10px; margin-bottom:12px;}
+  .sortLabel{font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:var(--paper-dim); flex-shrink:0;}
+  #sortSelect{
+    flex:1; background:var(--panel-2); border:1px solid var(--line); border-radius:9px;
+    padding:10px 12px; font-size:13.5px; color:var(--paper); outline:none;
+    -webkit-appearance:none; appearance:none;
+    background-image:url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23b98a3d'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 12px center;
+  }
   .searchResultsCount{font-size:11.5px; color:var(--paper-dim); margin-bottom:8px; flex-shrink:0;}
   .searchResultsList{overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:8px; -webkit-overflow-scrolling:touch;}
   .searchResultItem{
@@ -383,6 +413,20 @@
 
 <div id="app">
 
+  <!-- ================= GLOBAL ERROR BANNER ====================
+       Reusable across the whole app for "this feature/file isn't
+       working, here's why, here's what to try" messages — camera
+       unsupported, GPS blocked, clipboard blocked, map/marker data
+       failed to load, etc. Shown via showErrorBanner(), see JS. ==== -->
+  <div id="errorBanner">
+    <div class="errorBannerIcon" id="errorBannerIcon">⚠️</div>
+    <div class="errorBannerText">
+      <div class="errorBannerTitle" id="errorBannerTitle">Something isn't working</div>
+      <div class="errorBannerMsg" id="errorBannerMsg">Details go here.</div>
+    </div>
+    <div class="errorBannerClose" id="errorBannerClose">✕</div>
+  </div>
+
   <!-- ================= MAP SCREEN ================= -->
   <div class="screen active" id="mapScreen">
     <div class="topbar">
@@ -421,6 +465,17 @@
         <input type="number" id="searchYearMin" placeholder="From year" inputmode="numeric">
         <span class="yearRangeDash">–</span>
         <input type="number" id="searchYearMax" placeholder="To year (optional)" inputmode="numeric">
+      </div>
+
+      <div class="sortRow">
+        <label class="sortLabel">Sort by</label>
+        <select id="sortSelect">
+          <option value="none">Default order</option>
+          <option value="name-az">Name (A → Z)</option>
+          <option value="name-za">Name (Z → A)</option>
+          <option value="year-lowhigh">Year (oldest first)</option>
+          <option value="year-highlow">Year (newest first)</option>
+        </select>
       </div>
 
       <div class="searchResultsCount" id="searchResultsCount"></div>
@@ -478,7 +533,7 @@
     <canvas id="edgeSourceCanvas" style="display:none;"></canvas>
 
     <div id="camFallback" style="display:none;">
-      <p>Camera access is needed to line up the live view with the old photo. Tap below to allow it, or check your browser's site settings if you already declined.</p>
+      <p id="camFallbackMsg">Camera access is needed to line up the live view with the old photo. Tap below to allow it, or check your browser's site settings if you already declined.</p>
       <button class="btn" id="retryCamBtn" style="max-width:220px;">Enable camera</button>
     </div>
 
@@ -570,6 +625,24 @@
 <script>
 (function(){
   "use strict";
+
+  /* ---------------------------------------------------------
+     GLOBAL ERROR BANNER
+     ----------------------------------------------------------
+     Shows a visible, dismissible message instead of letting a
+     missing browser feature or failed file load fail silently
+     (a blank screen, or a control that just doesn't do anything
+     when tapped). Every call site below explains what's broken
+     and what the person can try — never just an error code.
+  --------------------------------------------------------- */
+  function showErrorBanner(title, message){
+    document.getElementById('errorBannerTitle').textContent = title;
+    document.getElementById('errorBannerMsg').textContent = message;
+    document.getElementById('errorBanner').classList.add('show');
+  }
+  document.getElementById('errorBannerClose').addEventListener('click', function(){
+    document.getElementById('errorBanner').classList.remove('show');
+  });
 
   /* ---------------------------------------------------------
      DATA: markers. Loaded from an external "markers.json" file
@@ -710,6 +783,21 @@
       if(year <= DECADE_BUCKETS[i].max) return DECADE_BUCKETS[i].color;
     }
     return '#b98a3d';
+  }
+
+  /* Shows a marker's date as a plain number wherever possible — e.g. "c. 1890"
+     or "circa 1890" both display as just "1890" — falling back to the raw
+     date string only for things that aren't reducible to a single year, like
+     "Undated" or a full "July 11, 1870". If m.year exists, that number wins;
+     otherwise this pulls the first 4-digit year out of m.date if there is one. */
+  function displayDate(m){
+    if(typeof m.year === 'number' && !isNaN(m.year)) return String(m.year);
+    if(m.date){
+      var match = m.date.match(/(1[0-9]{3}|20[0-9]{2})/);
+      if(match) return match[1];
+      return m.date; // no extractable year (e.g. "Undated") — show as-is
+    }
+    return '';
   }
 
   /* ---------------------------------------------------------
@@ -1171,6 +1259,38 @@
   document.getElementById('searchTextInput').addEventListener('input', runSearch);
   document.getElementById('searchYearMin').addEventListener('input', runSearch);
   document.getElementById('searchYearMax').addEventListener('input', runSearch);
+  document.getElementById('sortSelect').addEventListener('change', runSearch);
+
+  /* Sorts a results array in place-safe fashion (returns a new array).
+     "none" preserves markers.json's original order. Name sorts are
+     case-insensitive. Year sorts push undated entries to the bottom
+     regardless of direction, since there's no meaningful position for
+     "unknown" on a chronological axis. */
+  function sortResults(results){
+    var mode = document.getElementById('sortSelect').value;
+    if(mode === 'none') return results;
+
+    var sorted = results.slice(); // don't mutate the filtered array in place
+    if(mode === 'name-az' || mode === 'name-za'){
+      sorted.sort(function(a, b){
+        var ta = (a.title || '').toLowerCase();
+        var tb = (b.title || '').toLowerCase();
+        if(ta < tb) return mode === 'name-az' ? -1 : 1;
+        if(ta > tb) return mode === 'name-az' ? 1 : -1;
+        return 0;
+      });
+    } else if(mode === 'year-lowhigh' || mode === 'year-highlow'){
+      sorted.sort(function(a, b){
+        var ya = typeof a.year === 'number' ? a.year : null;
+        var yb = typeof b.year === 'number' ? b.year : null;
+        if(ya == null && yb == null) return 0;
+        if(ya == null) return 1;  // undated always sinks to the bottom
+        if(yb == null) return -1;
+        return mode === 'year-lowhigh' ? ya - yb : yb - ya;
+      });
+    }
+    return sorted;
+  }
 
   function runSearch(){
     var results = [];
@@ -1194,7 +1314,7 @@
         return val.indexOf(q) !== -1;
       });
     }
-    renderSearchResults(results);
+    renderSearchResults(sortResults(results));
   }
 
   function renderSearchResults(results){
@@ -1226,7 +1346,7 @@
       t.textContent = m.title;
       var d = document.createElement('div');
       d.className = 'd';
-      d.textContent = m.date || (m.year ? String(m.year) : '');
+      d.textContent = displayDate(m);
       info.appendChild(t);
       info.appendChild(d);
 
@@ -1345,21 +1465,31 @@
     var value = this.dataset.copyValue || '';
     var msg = document.getElementById('navCopiedMsg');
     function showCopied(){
+      msg.textContent = 'Copied to clipboard ✓';
       msg.classList.add('show');
       setTimeout(function(){ msg.classList.remove('show'); }, 1800);
     }
+    function showCopyFailed(){
+      showErrorBanner(
+        'Couldn\'t copy automatically',
+        'Your browser blocked automatic copying. Select and copy this manually: ' + value
+      );
+    }
     if(navigator.clipboard && navigator.clipboard.writeText){
       navigator.clipboard.writeText(value).then(showCopied).catch(function(){
-        fallbackCopy(value); showCopied();
+        if(fallbackCopy(value)) showCopied();
+        else showCopyFailed();
       });
     } else {
-      fallbackCopy(value);
-      showCopied();
+      if(fallbackCopy(value)) showCopied();
+      else showCopyFailed();
     }
   });
 
   /* Older-browser fallback for the Clipboard API (some in-app browsers /
-     older Safari versions don't support navigator.clipboard.writeText). */
+     older Safari versions don't support navigator.clipboard.writeText).
+     Returns true/false so the caller knows whether it actually worked —
+     execCommand can silently no-op rather than throwing. */
   function fallbackCopy(text){
     var ta = document.createElement('textarea');
     ta.value = text;
@@ -1367,8 +1497,10 @@
     ta.style.opacity = '0';
     document.body.appendChild(ta);
     ta.select();
-    try { document.execCommand('copy'); } catch(e){}
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch(e){ ok = false; }
     document.body.removeChild(ta);
+    return ok;
   }
 
   /* ---------------------------------------------------------
@@ -1380,7 +1512,7 @@
     document.getElementById('cardTitle').textContent = m.title;
 
     var dateEl = document.getElementById('cardDate');
-    dateEl.textContent = m.date || (m.year ? String(m.year) : '');
+    dateEl.textContent = displayDate(m);
 
     var distText = '— m away';
     if(state.userLat != null){
@@ -1458,10 +1590,31 @@
   function onPositionError(err){
     gpsStatusEl.classList.remove('locked');
     gpsStatusEl.innerHTML = '<span class="dot"></span>' + (err.code === 1 ? 'Permission denied' : 'Signal unavailable');
+
+    if(err.code === 1){ // PERMISSION_DENIED
+      showErrorBanner(
+        'Location access is off',
+        'This app can\'t show your position on the map without it. On iPhone: Settings > Safari (or Chrome) > Location, or tap "aA" in the address bar > Website Settings > Location, and allow access, then reload this page.'
+      );
+    } else if(err.code === 2){ // POSITION_UNAVAILABLE
+      showErrorBanner(
+        'Can\'t get a GPS signal',
+        'Your device can\'t determine its location right now — this is common indoors or with a weak signal. Move outside or near a window and it should recover on its own.'
+      );
+    } else if(err.code === 3){ // TIMEOUT
+      showErrorBanner(
+        'Location is taking too long',
+        'Your device hasn\'t responded with a location yet. This can happen with a weak GPS signal — the app will keep trying automatically.'
+      );
+    }
   }
   function startGeo(){
     if(!('geolocation' in navigator)){
       gpsStatusEl.innerHTML = '<span class="dot"></span>Not supported';
+      showErrorBanner(
+        'Location isn\'t supported here',
+        'Your browser doesn\'t support finding your position. Try updating your browser, or use Safari on iPhone / Chrome on Android, which both support this.'
+      );
       return;
     }
     state.watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, {
@@ -1471,7 +1624,12 @@
   startGeo();
 
   // demo fallback: if no real GPS fix within a few seconds (e.g. desktop testing),
-  // drop a simulated position ~90m from the map origin so the UI is exercisable.
+  // demo fallback: if no real GPS fix within a few seconds (e.g. desktop testing,
+  // or the person hasn't responded to the permission prompt yet), drop a simulated
+  // position so the UI is still exercisable. This does NOT suppress or replace the
+  // error banner above — if geolocation was actually denied/unsupported, the person
+  // already saw why and what to do about it; this just keeps the map interactive
+  // in the meantime rather than leaving the "you are here" dot missing forever.
   setTimeout(function(){
     if(state.userLat == null){
       state.userLat = origin.lat + 0.0008;
@@ -1511,12 +1669,27 @@
       DeviceOrientationEvent.requestPermission().then(function(resp){
         if(resp === 'granted'){
           window.addEventListener('deviceorientation', handleOrientation, true);
+        } else {
+          markCompassUnavailable('Compass access denied — you can still align by eye.');
         }
-      }).catch(function(){});
+      }).catch(function(){
+        markCompassUnavailable('Compass unavailable — you can still align by eye.');
+      });
+    } else if(typeof DeviceOrientationEvent === 'undefined'){
+      markCompassUnavailable('This browser doesn\'t support a compass — you can still align by eye.');
     } else {
       window.addEventListener('deviceorientationabsolute', handleOrientation, true);
       window.addEventListener('deviceorientation', handleOrientation, true);
     }
+  }
+
+  function markCompassUnavailable(hint){
+    // low-stakes feature (a coarse "face this way" aid) — no intrusive banner,
+    // just a visible dimmed state + tooltip on the compass icon itself, since
+    // the AR overlay still works fine without it.
+    var wrap = document.getElementById('compassWrap');
+    wrap.style.opacity = '0.35';
+    wrap.title = hint;
   }
 
   /* ---------------------------------------------------------
@@ -1561,7 +1734,7 @@
   function openCompare(m){
     markerCard.classList.remove('show');
     document.getElementById('compareName').textContent = m.title;
-    document.getElementById('compareYr').textContent = m.date || (m.year ? String(m.year) : '');
+    document.getElementById('compareYr').textContent = displayDate(m);
 
     setImageWithFallback(compareBefore, m.photo);
     setImageWithFallback(compareAfter, m.afterPhoto);
@@ -1763,7 +1936,7 @@
     markerCard.classList.remove('show');
     document.querySelector('.arTitle .name').textContent = m.title;
     document.querySelector('.arTitle .yr').textContent =
-      (m.date || (m.year ? String(m.year) : '')) +
+      displayDate(m) +
       (typeof m.bearing === 'number' ? ' · bearing ' + m.bearing + '°' : '');
     overlayImg.onerror = null; // clear any stale handler from a previous marker before re-attaching
     setImageWithFallback(overlayImg, m.photo);
@@ -1797,7 +1970,13 @@
   function startCamera(){
     document.getElementById('camFallback').style.display = 'none';
     if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      document.getElementById('camFallbackMsg').textContent =
+        'This browser doesn\'t support camera access, so the live overlay view can\'t work here. Try Safari on iPhone or Chrome on Android — both support this.';
       document.getElementById('camFallback').style.display = 'flex';
+      showErrorBanner(
+        'Camera isn\'t supported here',
+        'Your browser can\'t access the camera. Try Safari (iPhone) or Chrome (Android), which both support this feature.'
+      );
       return;
     }
     navigator.mediaDevices.getUserMedia({
@@ -1810,8 +1989,21 @@
         video.play();
         prepEdgeSource();
       };
-    }).catch(function(){
+    }).catch(function(err){
+      var name = err && err.name;
+      var msg;
+      if(name === 'NotAllowedError' || name === 'PermissionDeniedError'){
+        msg = 'Camera access was denied. On iPhone: Settings > Safari > Camera (or tap "aA" in the address bar > Website Settings), and allow access, then reload this page.';
+      } else if(name === 'NotFoundError' || name === 'DevicesNotFoundError'){
+        msg = 'No camera was found on this device, so the live overlay view can\'t work. You can still view the historical photo itself from the marker card.';
+      } else if(name === 'NotReadableError' || name === 'TrackStartError'){
+        msg = 'The camera is already in use by another app. Close other apps using the camera (like a video call), then tap "Enable camera" again.';
+      } else {
+        msg = 'The camera couldn\'t be started. Check your browser\'s site settings allow camera access, then tap "Enable camera" again.';
+      }
+      document.getElementById('camFallbackMsg').textContent = msg;
       document.getElementById('camFallback').style.display = 'flex';
+      showErrorBanner('Camera unavailable', msg);
     });
   }
   function stopCamera(){
@@ -2062,6 +2254,10 @@
           .catch(function(){
             // no external file available (or running from file://) — use embedded sample
             loadOsmXml(SAMPLE_OSM_XML);
+            showErrorBanner(
+              'Showing a sample map, not your real one',
+              'map.osm (or map.json) wasn\'t found next to index.html. If you just deployed, check the file uploaded correctly and is named exactly "map.osm" or "map.json" — filenames are case-sensitive.'
+            );
           });
       });
   }
@@ -2085,6 +2281,10 @@
       })
       .catch(function(){
         onMarkersLoaded(MARKERS_FALLBACK);
+        showErrorBanner(
+          'Showing sample markers, not your archive',
+          'markers.json wasn\'t found next to index.html, or it had a formatting error. If you just deployed, check the file uploaded correctly, is named exactly "markers.json", and is valid JSON.'
+        );
       });
   }
 
