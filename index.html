@@ -142,6 +142,49 @@
   .searchResultItem .info .d{font-size:11px; color:var(--brass); margin-top:1px;}
   .searchEmptyMsg{font-size:13px; color:var(--paper-dim); text-align:center; padding:30px 10px;}
 
+  .distRow{display:flex; align-items:center; justify-content:space-between; clear:both;}
+  .distRow .dist{margin:0;}
+  .navIconBtn{
+    width:30px; height:30px; border-radius:50%; background:var(--panel-2); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center; font-size:14px; cursor:pointer; flex-shrink:0;
+  }
+
+  /* ---------- NAVIGATION MENU ---------- */
+  .navOverlay{
+    position:fixed; inset:0; z-index:20; background:rgba(0,0,0,0.55);
+    display:flex; align-items:flex-end; justify-content:center;
+    opacity:0; pointer-events:none; transition:opacity 0.2s;
+  }
+  .navOverlay.show{ opacity:1; pointer-events:auto; }
+  .navSheet{
+    width:100%; max-width:480px; max-height:80vh; overflow-y:auto;
+    background:var(--panel); border:1px solid var(--line); border-radius:16px 16px 0 0;
+    padding:18px 18px calc(env(safe-area-inset-bottom,0px) + 18px);
+    transform:translateY(100%); transition:transform 0.26s cubic-bezier(.2,.8,.3,1);
+  }
+  .navOverlay.show .navSheet{ transform:translateY(0); }
+  .navSheetHeader{display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;}
+  .navSheetHeader h3{margin:0; font-size:16px; color:var(--paper); font-weight:600;}
+  .navCoordLine{font-size:12px; color:var(--paper-dim); margin:0 0 16px; font-variant-numeric:tabular-nums;}
+
+  .navSectionLabel{font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:var(--brass); margin:0 0 8px; font-weight:600;}
+  .navAppList{display:flex; flex-direction:column; gap:8px; margin-bottom:18px;}
+  .navAppItem{
+    display:flex; align-items:center; gap:12px; padding:12px 14px; border-radius:10px;
+    background:var(--panel-2); border:1px solid var(--line); cursor:pointer; text-decoration:none;
+  }
+  .navAppItem:active{opacity:0.8;}
+  .navAppItem .navAppIcon{font-size:18px; width:22px; text-align:center; flex-shrink:0;}
+  .navAppItem .navAppName{font-size:14px; color:var(--paper); font-weight:600; flex:1;}
+  .navAppItem .navAppHint{font-size:10.5px; color:var(--paper-dim); text-transform:uppercase; letter-spacing:0.04em;}
+
+  .navFormatRow{display:flex; gap:8px; margin-bottom:12px;}
+  .navCopiedMsg{
+    font-size:12px; color:var(--ok); text-align:center; margin-top:8px; height:16px;
+    opacity:0; transition:opacity 0.2s;
+  }
+  .navCopiedMsg.show{opacity:1;}
+
   .markerCard{
     position:absolute; left:16px; right:16px;
     bottom:calc(env(safe-area-inset-bottom,0px) + 18px);
@@ -388,13 +431,39 @@
         <h3 id="cardTitle">Stratford Stone Bridge</h3>
         <span class="dateBadge" id="cardDate"></span>
       </div>
-      <p class="dist" id="cardDist">— m away</p>
+      <div class="distRow">
+        <p class="dist" id="cardDist">— m away</p>
+        <div class="navIconBtn" id="navIconBtn" title="Get directions">📍</div>
+      </div>
       <p class="desc clamped" id="cardDesc"></p>
       <button class="showMoreBtn" id="cardShowMoreBtn" style="display:none;">Show more</button>
       <p class="sourceLine" id="cardSource" style="display:none;"></p>
       <div class="row">
         <button class="btn" id="openArBtn">View Then/Now overlay</button>
         <button class="btn secondary" id="closeCardBtn">Close</button>
+      </div>
+    </div>
+
+    <!-- ---- NAVIGATION MENU ---- -->
+    <div class="navOverlay" id="navOverlay">
+      <div class="navSheet" id="navSheet">
+        <div class="navSheetHeader">
+          <h3>Navigate to this location</h3>
+          <div class="closeX" id="navCloseBtn">✕</div>
+        </div>
+        <p class="navCoordLine" id="navCoordLine"></p>
+
+        <div class="navSectionLabel">Open in</div>
+        <div class="navAppList" id="navAppList"><!-- filled by JS --></div>
+
+        <div class="navSectionLabel">Copy coordinates</div>
+        <div class="navFormatRow">
+          <div class="searchTypeBtn active" data-navformat="decimal">Decimal</div>
+          <div class="searchTypeBtn" data-navformat="dms">DMS</div>
+          <div class="searchTypeBtn" data-navformat="ddm">Deg + Min</div>
+        </div>
+        <button class="btn secondary" id="navCopyBtn">Copy 43.37032, -80.98185</button>
+        <div class="navCopiedMsg" id="navCopiedMsg">Copied to clipboard ✓</div>
       </div>
     </div>
   </div>
@@ -686,6 +755,44 @@
     var dLon = (lon2-lon1) * Math.PI/180;
     var a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
     return 2 * R * Math.asin(Math.sqrt(a));
+  }
+
+  /* ---------------------------------------------------------
+     COORDINATE FORMATTING — three common ways people write GPS
+     coordinates, for the navigation menu's "copy" option.
+  --------------------------------------------------------- */
+  function formatDecimal(lat, lon){
+    // e.g. "43.37032, -80.98185"
+    return lat.toFixed(5) + ', ' + lon.toFixed(5);
+  }
+
+  function formatDMS(lat, lon){
+    // e.g. `43°22'13"N 80°58'55"W`
+    function part(val, posLetter, negLetter){
+      var letter = val >= 0 ? posLetter : negLetter;
+      var abs = Math.abs(val);
+      var deg = Math.floor(abs);
+      var minFloat = (abs - deg) * 60;
+      var min = Math.floor(minFloat);
+      var sec = Math.round((minFloat - min) * 60);
+      // carry a rounded-up 60s into minutes/degrees, same as any GPS unit would
+      if(sec === 60){ sec = 0; min += 1; }
+      if(min === 60){ min = 0; deg += 1; }
+      return deg + '\u00B0' + min + "'" + sec + '"' + letter;
+    }
+    return part(lat, 'N', 'S') + ' ' + part(lon, 'E', 'W');
+  }
+
+  function formatDDM(lat, lon){
+    // degrees + decimal minutes, e.g. `43°22.211'N 80°58.911'W`
+    function part(val, posLetter, negLetter){
+      var letter = val >= 0 ? posLetter : negLetter;
+      var abs = Math.abs(val);
+      var deg = Math.floor(abs);
+      var min = (abs - deg) * 60;
+      return deg + '\u00B0' + min.toFixed(3) + "'" + letter;
+    }
+    return part(lat, 'N', 'S') + ' ' + part(lon, 'E', 'W');
   }
 
   /* ---------------------------------------------------------
@@ -1141,6 +1248,125 @@
     view.offsetX = -(dx / view.metersPerPixel);
     view.offsetY = (dy / view.metersPerPixel);
     drawMap();
+  }
+
+  /* ---------------------------------------------------------
+     NAVIGATION MENU
+     ----------------------------------------------------------
+     Every marker already carries lat/lon (that's how it gets
+     placed on the map), so this reuses state.activeMarker rather
+     than needing any new markers.json fields. Opens a sheet with
+     deep links to common map apps/sites, plus a coordinate copy
+     option in three common formats.
+
+     A note on the app links: there's no single universal
+     "open in any maps app" URL scheme — each provider has its
+     own. These are the current standard ones as of writing;
+     Apple/Google Maps links work as universal links (open the
+     native app if installed, else fall back to the website).
+  --------------------------------------------------------- */
+  var navOverlay = document.getElementById('navOverlay');
+  var navFormat = 'decimal';
+
+  function buildNavLinks(lat, lon){
+    var llStr = lat + ',' + lon;
+    return [
+      { name: 'Apple Maps', icon: '🗺️', hint: 'App or web', url: 'https://maps.apple.com/?ll=' + llStr + '&q=' + llStr },
+      { name: 'Google Maps', icon: '📍', hint: 'App or web', url: 'https://www.google.com/maps?q=' + llStr },
+      { name: 'Bing Maps', icon: '🌐', hint: 'Web', url: 'https://www.bing.com/maps?cp=' + llStr + '&lvl=16' },
+      { name: 'OpenStreetMap', icon: '🗾', hint: 'Web', url: 'https://www.openstreetmap.org/?mlat=' + lat + '&mlon=' + lon + '#map=17/' + lat + '/' + lon }
+    ];
+  }
+
+  function openNavMenu(m){
+    if(!m || typeof m.lat !== 'number' || typeof m.lon !== 'number') return;
+
+    document.getElementById('navCoordLine').textContent =
+      m.lat.toFixed(5) + ', ' + m.lon.toFixed(5) + (m.title ? ' · ' + m.title : '');
+
+    var listEl = document.getElementById('navAppList');
+    listEl.innerHTML = '';
+    buildNavLinks(m.lat, m.lon).forEach(function(app){
+      var a = document.createElement('a');
+      a.className = 'navAppItem';
+      a.href = app.url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.innerHTML =
+        '<span class="navAppIcon">' + app.icon + '</span>' +
+        '<span class="navAppName">' + app.name + '</span>' +
+        '<span class="navAppHint">' + app.hint + '</span>';
+      listEl.appendChild(a);
+    });
+
+    navFormat = 'decimal';
+    document.querySelectorAll('[data-navformat]').forEach(function(b){
+      b.classList.toggle('active', b.dataset.navformat === 'decimal');
+    });
+    updateNavCopyButton(m);
+
+    navOverlay.classList.add('show');
+  }
+
+  function closeNavMenu(){
+    navOverlay.classList.remove('show');
+    document.getElementById('navCopiedMsg').classList.remove('show');
+  }
+
+  function updateNavCopyButton(m){
+    var text;
+    if(navFormat === 'dms') text = formatDMS(m.lat, m.lon);
+    else if(navFormat === 'ddm') text = formatDDM(m.lat, m.lon);
+    else text = formatDecimal(m.lat, m.lon);
+    document.getElementById('navCopyBtn').textContent = 'Copy ' + text;
+    document.getElementById('navCopyBtn').dataset.copyValue = text;
+  }
+
+  document.getElementById('navIconBtn').addEventListener('click', function(){
+    openNavMenu(state.activeMarker);
+  });
+  document.getElementById('navCloseBtn').addEventListener('click', closeNavMenu);
+  navOverlay.addEventListener('click', function(e){
+    if(e.target === navOverlay) closeNavMenu(); // tap outside the sheet to dismiss
+  });
+
+  document.querySelectorAll('[data-navformat]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.querySelectorAll('[data-navformat]').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      navFormat = btn.dataset.navformat;
+      if(state.activeMarker) updateNavCopyButton(state.activeMarker);
+    });
+  });
+
+  document.getElementById('navCopyBtn').addEventListener('click', function(){
+    var value = this.dataset.copyValue || '';
+    var msg = document.getElementById('navCopiedMsg');
+    function showCopied(){
+      msg.classList.add('show');
+      setTimeout(function(){ msg.classList.remove('show'); }, 1800);
+    }
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(value).then(showCopied).catch(function(){
+        fallbackCopy(value); showCopied();
+      });
+    } else {
+      fallbackCopy(value);
+      showCopied();
+    }
+  });
+
+  /* Older-browser fallback for the Clipboard API (some in-app browsers /
+     older Safari versions don't support navigator.clipboard.writeText). */
+  function fallbackCopy(text){
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch(e){}
+    document.body.removeChild(ta);
   }
 
   /* ---------------------------------------------------------
