@@ -51,6 +51,13 @@
   .gpsStatus .dot{display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:5px; background:var(--danger); vertical-align:1px;}
   .gpsStatus.locked .dot{background:var(--ok);}
 
+  .topbarRight{display:flex; flex-direction:column; align-items:flex-end; gap:8px;}
+  .searchIconBtn{
+    pointer-events:auto; width:34px; height:34px; border-radius:50%;
+    background:rgba(20,27,24,0.75); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center; font-size:15px; cursor:pointer;
+  }
+
   .marker{
     position:absolute; width:34px; height:34px; margin-left:-17px; margin-top:-32px;
     cursor:pointer; transform-origin:50% 100%;
@@ -83,6 +90,57 @@
     margin-left:-14px; margin-top:-34px;
     pointer-events:none;
   }
+
+  /* ---------- SEARCH PANEL ---------- */
+  .searchPanel{
+    position:absolute; left:16px; right:16px; top:calc(env(safe-area-inset-top,0px) + 70px);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 18px);
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:16px; z-index:8;
+    display:flex; flex-direction:column;
+    transform:translateY(-120%); opacity:0; transition:transform 0.26s cubic-bezier(.2,.8,.3,1), opacity 0.2s;
+    box-shadow:0 10px 30px rgba(0,0,0,0.5);
+    pointer-events:none;
+  }
+  .searchPanel.show{ transform:translateY(0); opacity:1; pointer-events:auto; }
+  .searchPanelHeader{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
+  .searchPanelHeader h3{margin:0; font-size:16px; color:var(--paper); font-weight:600;}
+  .closeX{
+    width:28px; height:28px; border-radius:50%; background:var(--panel-2); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center; font-size:13px; color:var(--paper-dim); cursor:pointer;
+  }
+
+  .searchTypeRow{display:flex; gap:8px; margin-bottom:12px;}
+  .searchTypeBtn{
+    flex:1; padding:9px 4px; border-radius:8px; text-align:center; font-size:12px; font-weight:600;
+    background:var(--panel-2); border:1px solid var(--line); color:var(--paper-dim); cursor:pointer;
+  }
+  .searchTypeBtn.active{background:var(--brass); color:#1a1206; border-color:var(--brass);}
+
+  .searchInputRow{display:flex; align-items:center; gap:8px; margin-bottom:12px;}
+  .searchInputRow.hidden{display:none;}
+  .searchInputRow input{
+    flex:1; background:var(--panel-2); border:1px solid var(--line); border-radius:9px;
+    padding:11px 12px; font-size:14px; color:var(--paper); outline:none; min-width:0;
+  }
+  .searchInputRow input::placeholder{color:var(--paper-dim);}
+  .yearRangeDash{color:var(--paper-dim); flex-shrink:0;}
+
+  .searchResultsCount{font-size:11.5px; color:var(--paper-dim); margin-bottom:8px; flex-shrink:0;}
+  .searchResultsList{overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:8px; -webkit-overflow-scrolling:touch;}
+  .searchResultItem{
+    display:flex; align-items:center; gap:10px; padding:9px; border-radius:10px;
+    background:var(--panel-2); border:1px solid var(--line); cursor:pointer;
+  }
+  .searchResultItem:active{opacity:0.8;}
+  .searchResultItem .thumb{
+    width:42px; height:42px; border-radius:7px; object-fit:cover; flex-shrink:0; border:1px solid var(--line);
+  }
+  .searchResultItem .thumb.missing{border:1px dashed var(--brass);}
+  .searchResultItem .info{min-width:0; flex:1;}
+  .searchResultItem .info .t{font-size:13px; color:var(--paper); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .searchResultItem .info .d{font-size:11px; color:var(--brass); margin-top:1px;}
+  .searchEmptyMsg{font-size:13px; color:var(--paper-dim); text-align:center; padding:30px 10px;}
 
   .markerCard{
     position:absolute; left:16px; right:16px;
@@ -143,7 +201,7 @@
   #camVideo{position:absolute; inset:0; width:100%; height:100%; object-fit:cover;}
   #overlayImg{
     position:absolute; left:0; top:0; width:100%; height:100%;
-    object-fit:cover; opacity:0.55; pointer-events:none;
+    object-fit:contain; opacity:0.55; pointer-events:none;
     mix-blend-mode:normal; transform-origin:50% 50%;
   }
   /* When showing the "missing image" placeholder, force full opacity and
@@ -228,9 +286,9 @@
 
   /* ---------- COMPARE SCREEN ---------- */
   #compareScreen{background:#000;}
-  .compareStage{position:absolute; inset:0; overflow:hidden; touch-action:none;}
+  .compareStage{position:absolute; inset:0; overflow:hidden; touch-action:none; background:#0a0d0b;}
   #compareAfter{
-    position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block;
+    position:absolute; inset:0; width:100%; height:100%; object-fit:contain; display:block;
   }
   #compareBeforeWrap{
     position:absolute; inset:0; width:100%; height:100%; overflow:hidden;
@@ -238,7 +296,7 @@
        inside) and wipe modes (via inset() on this wrapper) */
   }
   #compareBefore{
-    position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block;
+    position:absolute; inset:0; width:100%; height:100%; object-fit:contain; display:block;
   }
   #wipeHandle{
     position:absolute; top:0; bottom:0; width:3px; background:var(--brass);
@@ -287,12 +345,42 @@
         <div class="brandmark">Then / Now</div>
         <div class="brandtitle">Avon River Archive</div>
       </div>
-      <div class="gpsStatus" id="gpsStatus"><span class="dot"></span>Locating…</div>
+      <div class="topbarRight">
+        <div class="gpsStatus" id="gpsStatus"><span class="dot"></span>Locating…</div>
+        <div class="searchIconBtn" id="searchIconBtn" title="Search">🔍</div>
+      </div>
     </div>
 
     <canvas id="mapCanvas"></canvas>
 
     <div class="hint" id="mapHint">Tap the pin when you're near it to compare then &amp; now.</div>
+
+    <!-- ---- SEARCH PANEL ---- -->
+    <div class="searchPanel" id="searchPanel">
+      <div class="searchPanelHeader">
+        <h3>Search the archive</h3>
+        <div class="closeX" id="searchCloseBtn">✕</div>
+      </div>
+
+      <div class="searchTypeRow">
+        <div class="searchTypeBtn active" data-searchtype="title">Title</div>
+        <div class="searchTypeBtn" data-searchtype="description">Description</div>
+        <div class="searchTypeBtn" data-searchtype="year">Year / range</div>
+      </div>
+
+      <div class="searchInputRow" id="searchTextRow">
+        <input type="text" id="searchTextInput" placeholder="Search by title…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      </div>
+
+      <div class="searchInputRow hidden" id="searchYearRow">
+        <input type="number" id="searchYearMin" placeholder="From year" inputmode="numeric">
+        <span class="yearRangeDash">–</span>
+        <input type="number" id="searchYearMax" placeholder="To year (optional)" inputmode="numeric">
+      </div>
+
+      <div class="searchResultsCount" id="searchResultsCount"></div>
+      <div class="searchResultsList" id="searchResultsList"></div>
+    </div>
 
     <div class="markerCard" id="markerCard">
       <img class="thumb" id="cardThumb" src="" alt="">
@@ -922,6 +1010,140 @@
   }
 
   /* ---------------------------------------------------------
+     SEARCH
+     ----------------------------------------------------------
+     Three filter modes over the same `markers` array already
+     loaded from markers.json:
+       - title        substring match against m.title
+       - description  substring match against m.description
+       - year         numeric range match against m.year (inclusive);
+                       leaving "to" blank searches that single year
+                       or, if "from" is also blank, matches everything
+  --------------------------------------------------------- */
+  var searchPanel = document.getElementById('searchPanel');
+  var searchState = { type: 'title' };
+
+  function openSearchPanel(){
+    searchPanel.classList.add('show');
+    markerCard.classList.remove('show');
+    runSearch(); // show current results immediately (empty query = full list for text modes)
+    if(searchState.type !== 'year'){
+      setTimeout(function(){ document.getElementById('searchTextInput').focus(); }, 50);
+    }
+  }
+  function closeSearchPanel(){
+    searchPanel.classList.remove('show');
+  }
+  document.getElementById('searchIconBtn').addEventListener('click', openSearchPanel);
+  document.getElementById('searchCloseBtn').addEventListener('click', closeSearchPanel);
+
+  document.querySelectorAll('.searchTypeBtn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.querySelectorAll('.searchTypeBtn').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      searchState.type = btn.dataset.searchtype;
+
+      var textRow = document.getElementById('searchTextRow');
+      var yearRow = document.getElementById('searchYearRow');
+      var textInput = document.getElementById('searchTextInput');
+
+      if(searchState.type === 'year'){
+        textRow.classList.add('hidden');
+        yearRow.classList.remove('hidden');
+      } else {
+        textRow.classList.remove('hidden');
+        yearRow.classList.add('hidden');
+        textInput.placeholder = searchState.type === 'title' ? 'Search by title…' : 'Search by description…';
+      }
+      runSearch();
+    });
+  });
+
+  document.getElementById('searchTextInput').addEventListener('input', runSearch);
+  document.getElementById('searchYearMin').addEventListener('input', runSearch);
+  document.getElementById('searchYearMax').addEventListener('input', runSearch);
+
+  function runSearch(){
+    var results = [];
+    if(searchState.type === 'year'){
+      var minRaw = document.getElementById('searchYearMin').value;
+      var maxRaw = document.getElementById('searchYearMax').value;
+      var min = minRaw !== '' ? parseInt(minRaw, 10) : null;
+      var max = maxRaw !== '' ? parseInt(maxRaw, 10) : null;
+      results = markers.filter(function(m){
+        if(typeof m.year !== 'number') return false;
+        if(min != null && max != null) return m.year >= Math.min(min,max) && m.year <= Math.max(min,max);
+        if(min != null) return m.year === min;
+        return true; // no bounds entered yet -> show everything with a known year
+      });
+    } else {
+      var q = document.getElementById('searchTextInput').value.trim().toLowerCase();
+      var field = searchState.type; // 'title' | 'description'
+      results = markers.filter(function(m){
+        if(!q) return true;
+        var val = (m[field] || '').toLowerCase();
+        return val.indexOf(q) !== -1;
+      });
+    }
+    renderSearchResults(results);
+  }
+
+  function renderSearchResults(results){
+    var countEl = document.getElementById('searchResultsCount');
+    var listEl = document.getElementById('searchResultsList');
+    countEl.textContent = results.length + (results.length === 1 ? ' result' : ' results');
+    listEl.innerHTML = '';
+
+    if(!results.length){
+      var empty = document.createElement('div');
+      empty.className = 'searchEmptyMsg';
+      empty.textContent = 'No matches. Try a different search.';
+      listEl.appendChild(empty);
+      return;
+    }
+
+    results.forEach(function(m){
+      var item = document.createElement('div');
+      item.className = 'searchResultItem';
+
+      var thumb = document.createElement('img');
+      thumb.className = 'thumb';
+      setImageWithFallback(thumb, m.photo);
+
+      var info = document.createElement('div');
+      info.className = 'info';
+      var t = document.createElement('div');
+      t.className = 't';
+      t.textContent = m.title;
+      var d = document.createElement('div');
+      d.className = 'd';
+      d.textContent = m.date || (m.year ? String(m.year) : '');
+      info.appendChild(t);
+      info.appendChild(d);
+
+      item.appendChild(thumb);
+      item.appendChild(info);
+      item.addEventListener('click', function(){
+        closeSearchPanel();
+        panToMarker(m);
+        onMarkerTap(m);
+      });
+      listEl.appendChild(item);
+    });
+  }
+
+  /* Recenters the map view (pan only, no zoom change) on a given marker,
+     so search results are reachable even if they're off-screen. */
+  function panToMarker(m){
+    var mpd = metersPerDeg(origin.lat);
+    var dx = (m.lon - origin.lon) * mpd.lon;
+    var dy = (m.lat - origin.lat) * mpd.lat;
+    view.offsetX = -(dx / view.metersPerPixel);
+    view.offsetY = (dy / view.metersPerPixel);
+    drawMap();
+  }
+
+  /* ---------------------------------------------------------
      MARKER CARD
   --------------------------------------------------------- */
   function onMarkerTap(m){
@@ -979,6 +1201,7 @@
     var openBtn = document.getElementById('openArBtn');
     openBtn.textContent = m.mode === 'compare' ? 'View then/now comparison' : 'View Then/Now overlay';
 
+    closeSearchPanel();
     markerCard.classList.add('show');
   }
   document.getElementById('closeCardBtn').addEventListener('click', function(){
@@ -1529,12 +1752,13 @@
     edgeCtx.setTransform(1,0,0,1,0,0);
     edgeCtx.clearRect(0,0,edgeCanvas.width, edgeCanvas.height);
     edgeCtx.imageSmoothingEnabled = true;
-    // object-fit: cover style draw so it matches the video framing
+    // object-fit: contain style draw — must match overlayImg's fit mode so
+    // edge-trace lines land in the same place as the actual (uncropped) photo
     var cw = edgeCanvas.width, ch = edgeCanvas.height;
     var srcAR = W/H, dstAR = cw/ch;
     var dw, dh, dx0, dy0;
-    if(srcAR > dstAR){ dh = ch; dw = ch*srcAR; dx0=(cw-dw)/2; dy0=0; }
-    else { dw = cw; dh = cw/srcAR; dx0=0; dy0=(ch-dh)/2; }
+    if(srcAR > dstAR){ dw = cw; dh = cw/srcAR; dx0=0; dy0=(ch-dh)/2; }
+    else { dh = ch; dw = ch*srcAR; dx0=(cw-dw)/2; dy0=0; }
     edgeCtx.drawImage(tmp, dx0, dy0, dw, dh);
   }
 
