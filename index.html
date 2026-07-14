@@ -97,6 +97,27 @@
   .marker.near svg .pin-fill{fill:var(--ok);}
   .marker.near .pulse{background:var(--ok);}
 
+  /* ---------- LANDMARK PINS (orientation anchors: churches, museums,
+     parks, etc — a small curated set, visually muted so they read as
+     background context rather than more things to tap through) ---------- */
+  .landmarkPin{
+    position:absolute; width:24px; height:24px; margin-left:-12px; margin-top:-12px;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(20,27,24,0.72); border:1px solid rgba(231,227,214,0.25);
+    border-radius:50%; cursor:pointer; z-index:3;
+    opacity:0.82;
+  }
+  .landmarkPin:active{opacity:1;}
+  .landmarkIcon{font-size:12px; line-height:1;}
+  .landmarkLabelPopup{
+    position:fixed; transform:translate(-50%,-100%);
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    padding:6px 10px; font-size:12px; color:var(--paper); white-space:nowrap;
+    pointer-events:none; opacity:0; transition:opacity 0.15s; z-index:7;
+    box-shadow:0 4px 12px rgba(0,0,0,0.4);
+  }
+  .landmarkLabelPopup.show{opacity:1;}
+
   .youAreHere{
     position:absolute; width:16px; height:16px; margin-left:-8px; margin-top:-8px;
     border-radius:50%; background:#4a90d9; border:2px solid #eaf3fb;
@@ -937,7 +958,7 @@
      add a new cluster of photos in a new area — no code changes
      needed either way.
   --------------------------------------------------------- */
-  var osmData = { coords: [], ways: [] }; // ways: [{ idx:[...], style:{...} }]
+  var osmData = { coords: [], ways: [], landmarks: [] }; // ways: [{ idx:[...], style:{...} }]; landmarks: [{lat,lon,style,name}]
 
   var STYLE_BY_CODE = {
     g: { type:'polygon', fill:'rgba(94,160,137,0.16)',  stroke:'rgba(94,160,137,0.30)',  lineWidth:1 },
@@ -970,6 +991,33 @@
     return null;
   }
 
+  /* ---------------------------------------------------------
+     LANDMARK POINTS — a deliberately small, curated set of OSM point
+     features shown as light orientation anchors ("the church is over
+     there") — NOT a general POI layer. Matches the categories from
+     crop_osm.py's LANDMARK_POINT_VALUES; if you add a category there,
+     add its icon/label here too so it actually renders.
+  --------------------------------------------------------- */
+  var LANDMARK_STYLES = [
+    { test: function(t){ return t.amenity === 'place_of_worship'; }, icon:'⛪', label:'Church' },
+    { test: function(t){ return t.historic === 'memorial' || t.historic === 'monument'; }, icon:'🗿', label:'Memorial' },
+    { test: function(t){ return t.amenity === 'townhall'; }, icon:'🏛️', label:'Town Hall' },
+    { test: function(t){ return t.leisure === 'garden'; }, icon:'🌷', label:'Garden' },
+    { test: function(t){ return t.amenity === 'theatre'; }, icon:'🎭', label:'Theatre' },
+    { test: function(t){ return t.tourism === 'guest_house'; }, icon:'🛏️', label:'Guest House' },
+    { test: function(t){ return t.leisure === 'park'; }, icon:'🌳', label:'Park' },
+    { test: function(t){ return t.leisure === 'playground'; }, icon:'🛝', label:'Playground' },
+    { test: function(t){ return t.tourism === 'museum'; }, icon:'🏛️', label:'Museum' },
+    { test: function(t){ return t.leisure === 'sports_centre'; }, icon:'🏟️', label:'Sport Centre' },
+    { test: function(t){ return t.amenity === 'school'; }, icon:'🏫', label:'School' }
+  ];
+  function classifyLandmark(tags){
+    for(var i=0;i<LANDMARK_STYLES.length;i++){
+      if(LANDMARK_STYLES[i].test(tags)) return LANDMARK_STYLES[i];
+    }
+    return null;
+  }
+
   function parseOsmJson(jsonText){
     var data = JSON.parse(jsonText);
     var coords = data.c;
@@ -979,19 +1027,38 @@
       var style = STYLE_BY_CODE[code];
       if(style && idx.length >= 2) ways.push({ idx: idx, style: style, code: code });
     });
-    return { coords: coords, ways: ways };
+    return { coords: coords, ways: ways, landmarks: [] }; // compact JSON format doesn't carry landmark points (yet) — use the .osm XML path for those
   }
 
   function parseOsmXml(xmlText){
     var doc = new DOMParser().parseFromString(xmlText, 'text/xml');
     var nodeIdToIndex = {};
     var coords = [];
+    var landmarks = [];
     var nodeEls = doc.getElementsByTagName('node');
     for(var i=0;i<nodeEls.length;i++){
       var n = nodeEls[i];
       var id = n.getAttribute('id');
       nodeIdToIndex[id] = coords.length/2;
-      coords.push(parseFloat(n.getAttribute('lat')), parseFloat(n.getAttribute('lon')));
+      var lat = parseFloat(n.getAttribute('lat'));
+      var lon = parseFloat(n.getAttribute('lon'));
+      coords.push(lat, lon);
+
+      // landmark points (churches, museums, etc) carry their tag directly
+      // on the node — see crop_osm.py's LANDMARK_POINT_VALUES for how
+      // these get selected during cropping. Un-cropped/manual .osm files
+      // work here too, since this just checks tags, not the source.
+      var tagEls = n.getElementsByTagName('tag');
+      if(tagEls.length){
+        var nodeTags = {};
+        for(var nt=0; nt<tagEls.length; nt++){
+          nodeTags[tagEls[nt].getAttribute('k')] = tagEls[nt].getAttribute('v');
+        }
+        var lmStyle = classifyLandmark(nodeTags);
+        if(lmStyle){
+          landmarks.push({ lat: lat, lon: lon, style: lmStyle, name: nodeTags.name || '' });
+        }
+      }
     }
     var ways = [];
     var wayEls = doc.getElementsByTagName('way');
@@ -1004,23 +1071,25 @@
         if(nodeIdToIndex.hasOwnProperty(ref)) idx.push(nodeIdToIndex[ref]);
       }
       var tags = {};
-      var tagEls = w.getElementsByTagName('tag');
-      for(var t=0;t<tagEls.length;t++){
-        tags[tagEls[t].getAttribute('k')] = tagEls[t].getAttribute('v');
+      var tagEls2 = w.getElementsByTagName('tag');
+      for(var t=0;t<tagEls2.length;t++){
+        tags[tagEls2[t].getAttribute('k')] = tagEls2[t].getAttribute('v');
       }
       var code = classifyXmlTags(tags);
       var style = STYLE_BY_CODE[code];
       if(style && idx.length >= 2) ways.push({ idx: idx, style: style, code: code });
     }
-    return { coords: coords, ways: ways };
+    return { coords: coords, ways: ways, landmarks: landmarks };
   }
 
   function loadOsmJson(jsonText){
     osmData = parseOsmJson(jsonText);
+    renderLandmarkDOM();
     drawMap();
   }
   function loadOsmXml(xmlText){
     osmData = parseOsmXml(xmlText);
+    renderLandmarkDOM();
     drawMap();
   }
 
@@ -1086,6 +1155,7 @@
 
     renderMarkerDOM();
     renderUserDOM();
+    positionLandmarkDOM();
   }
 
   /* ---------------------------------------------------------
@@ -1182,6 +1252,62 @@
         el.classList.toggle('near', d < 40);
       }
     });
+  }
+
+  /* ---------------------------------------------------------
+     LANDMARK PINS — small muted orientation anchors (churches,
+     museums, parks, etc), visually distinct from the brass/decade
+     -colored photo markers so they read as background context, not
+     more things to tap through. Tapping shows just a small name
+     label, not the full marker card — these aren't Then/Now spots.
+  --------------------------------------------------------- */
+  var landmarkEls = [];
+  function renderLandmarkDOM(){
+    // (re)build fresh each time osmData changes — landmark count is small
+    // (a curated allowlist, not "every POI"), so this is cheap.
+    landmarkEls.forEach(function(el){ el.remove(); });
+    landmarkEls = [];
+
+    (osmData.landmarks || []).forEach(function(lm){
+      var el = document.createElement('div');
+      el.className = 'landmarkPin';
+      el.innerHTML = '<span class="landmarkIcon">' + lm.style.icon + '</span>';
+      el.title = lm.name || lm.style.label;
+      el.addEventListener('click', function(e){
+        e.stopPropagation();
+        showLandmarkLabel(lm, el);
+      });
+      mapScreen.insertBefore(el, document.getElementById('mapHint'));
+      landmarkEls.push(el);
+    });
+    positionLandmarkDOM();
+  }
+  function positionLandmarkDOM(){
+    (osmData.landmarks || []).forEach(function(lm, i){
+      var el = landmarkEls[i];
+      if(!el) return;
+      var p = project(lm.lat, lm.lon);
+      el.style.left = p.x + 'px';
+      el.style.top = p.y + 'px';
+    });
+  }
+
+  var landmarkLabelEl = null;
+  function showLandmarkLabel(lm, anchorEl){
+    if(!landmarkLabelEl){
+      landmarkLabelEl = document.createElement('div');
+      landmarkLabelEl.className = 'landmarkLabelPopup';
+      mapScreen.appendChild(landmarkLabelEl);
+    }
+    landmarkLabelEl.textContent = lm.name || lm.style.label;
+    var rect = anchorEl.getBoundingClientRect();
+    landmarkLabelEl.style.left = rect.left + rect.width/2 + 'px';
+    landmarkLabelEl.style.top = (rect.top - 8) + 'px';
+    landmarkLabelEl.classList.add('show');
+    clearTimeout(landmarkLabelEl._hideTimer);
+    landmarkLabelEl._hideTimer = setTimeout(function(){
+      landmarkLabelEl.classList.remove('show');
+    }, 2200);
   }
 
   var userEl = null, coneEl = null;
