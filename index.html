@@ -2342,35 +2342,136 @@
     switchScreen('ar');
   });
 
+  /* ---------------------------------------------------------
+     MINIMAL ZIP WRITER — no external library, works fully offline.
+     Only implements what's needed here: a handful of small files,
+     stored uncompressed (method 0 = "store"). This is a real, valid
+     ZIP file any unzip tool can open — just skips DEFLATE compression
+     since photo+JSON don't compress much anyway and it keeps this
+     self-contained rather than pulling in a JS zip library.
+  --------------------------------------------------------- */
+  var CRC_TABLE = (function(){
+    var table = new Uint32Array(256);
+    for(var n=0; n<256; n++){
+      var c = n;
+      for(var k=0; k<8; k++){
+        c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      }
+      table[n] = c >>> 0;
+    }
+    return table;
+  })();
+  function crc32(bytes){
+    var crc = 0xFFFFFFFF;
+    for(var i=0; i<bytes.length; i++){
+      crc = CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+  function dosDateTime(date){
+    var dosTime = ((date.getHours() & 0x1F) << 11) | ((date.getMinutes() & 0x3F) << 5) | ((date.getSeconds() >> 1) & 0x1F);
+    var dosDate = (((date.getFullYear()-1980) & 0x7F) << 9) | (((date.getMonth()+1) & 0xF) << 5) | (date.getDate() & 0x1F);
+    return { time: dosTime, date: dosDate };
+  }
+
+  function makeZip(files){
+    // files: [{ name: 'x.jpg', data: Uint8Array }]
+    var chunks = [];
+    var centralRecords = [];
+    var offset = 0;
+    var now = dosDateTime(new Date());
+
+    files.forEach(function(f){
+      var nameBytes = new TextEncoder().encode(f.name);
+      var data = f.data;
+      var crc = crc32(data);
+
+      var localHeader = new DataView(new ArrayBuffer(30));
+      localHeader.setUint32(0, 0x04034b50, true);   // local file header signature
+      localHeader.setUint16(4, 20, true);            // version needed
+      localHeader.setUint16(6, 0, true);              // flags
+      localHeader.setUint16(8, 0, true);              // compression = store (none)
+      localHeader.setUint16(10, now.time, true);
+      localHeader.setUint16(12, now.date, true);
+      localHeader.setUint32(14, crc, true);
+      localHeader.setUint32(18, data.length, true);  // compressed size
+      localHeader.setUint32(22, data.length, true);  // uncompressed size
+      localHeader.setUint16(26, nameBytes.length, true);
+      localHeader.setUint16(28, 0, true);             // extra field length
+
+      chunks.push(new Uint8Array(localHeader.buffer), nameBytes, data);
+
+      var centralHeader = new DataView(new ArrayBuffer(46));
+      centralHeader.setUint32(0, 0x02014b50, true);  // central directory signature
+      centralHeader.setUint16(4, 20, true);
+      centralHeader.setUint16(6, 20, true);
+      centralHeader.setUint16(8, 0, true);
+      centralHeader.setUint16(10, 0, true);
+      centralHeader.setUint16(12, now.time, true);
+      centralHeader.setUint16(14, now.date, true);
+      centralHeader.setUint32(16, crc, true);
+      centralHeader.setUint32(20, data.length, true);
+      centralHeader.setUint32(24, data.length, true);
+      centralHeader.setUint16(28, nameBytes.length, true);
+      centralHeader.setUint16(30, 0, true);
+      centralHeader.setUint16(32, 0, true);
+      centralHeader.setUint16(34, 0, true);
+      centralHeader.setUint16(36, 0, true);
+      centralHeader.setUint32(38, 0, true);
+      centralHeader.setUint32(42, offset, true);
+
+      centralRecords.push({ header: new Uint8Array(centralHeader.buffer), nameBytes: nameBytes });
+      offset += 30 + nameBytes.length + data.length;
+    });
+
+    var centralStart = offset;
+    var centralSize = 0;
+    centralRecords.forEach(function(r){
+      chunks.push(r.header, r.nameBytes);
+      centralSize += r.header.length + r.nameBytes.length;
+    });
+
+    var end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true);       // end of central directory signature
+    end.setUint16(4, 0, true);
+    end.setUint16(6, 0, true);
+    end.setUint16(8, files.length, true);
+    end.setUint16(10, files.length, true);
+    end.setUint32(12, centralSize, true);
+    end.setUint32(16, centralStart, true);
+    end.setUint16(20, 0, true);
+    chunks.push(new Uint8Array(end.buffer));
+
+    return new Blob(chunks, { type: 'application/zip' });
+  }
+
   document.getElementById('downloadCaptureBtn').addEventListener('click', function(){
     if(!lastCapture) return;
     var markerId = lastCapture.meta.forMarkerId || 'capture';
     var stamp = lastCapture.meta.capturedAt.replace(/[:.]/g, '-');
     var baseName = markerId + '_' + stamp;
 
-    // photo download
-    var a1 = document.createElement('a');
-    a1.href = URL.createObjectURL(lastCapture.blob);
-    a1.download = baseName + '.jpg';
-    document.body.appendChild(a1);
-    a1.click();
-    document.body.removeChild(a1);
+    lastCapture.blob.arrayBuffer().then(function(photoBuf){
+      var jsonText = JSON.stringify(lastCapture.meta, null, 2);
+      var jsonBytes = new TextEncoder().encode(jsonText);
 
-    // sidecar metadata download (same base filename, .json extension —
-    // matches the photo so it's easy to tell which metadata goes with
-    // which image once both are sitting in your downloads folder)
-    var jsonBlob = new Blob([JSON.stringify(lastCapture.meta, null, 2)], { type: 'application/json' });
-    var a2 = document.createElement('a');
-    a2.href = URL.createObjectURL(jsonBlob);
-    a2.download = baseName + '.json';
-    document.body.appendChild(a2);
-    a2.click();
-    document.body.removeChild(a2);
+      var zipBlob = makeZip([
+        { name: baseName + '.jpg', data: new Uint8Array(photoBuf) },
+        { name: baseName + '.json', data: jsonBytes }
+      ]);
 
-    showErrorBanner(
-      'Saved — next step',
-      'Both files downloaded: ' + baseName + '.jpg and .json. Move the photo into your app\'s "photos" folder and reference it as the "afterPhoto" field for this marker in markers.json — the .json file has the exact numbers if you want to note them in the description.'
-    );
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(zipBlob);
+      a.download = baseName + '.zip';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      showErrorBanner(
+        'Saved — next step',
+        'Downloaded ' + baseName + '.zip containing the photo and its metadata. Unzip it, move the .jpg into your app\'s "photos" folder, and reference it as the "afterPhoto" field for this marker in markers.json.'
+      );
+    });
   });
 
   /* ---- opacity slider ---- */
